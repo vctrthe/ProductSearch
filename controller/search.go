@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/vctrthe/ProductSearch/config"
+	"github.com/vctrthe/ProductSearch/model"
 )
 
 func SearchProduct(c *gin.Context) {
@@ -29,7 +30,7 @@ func SearchProduct(c *gin.Context) {
 			"query": map[string]interface{}{
 				"multi_match": map[string]interface{}{
 					"query":     keyword,
-					"fields":    []string{"product_name", "drug_generic", "company"},
+					"fields":    []string{"product_name^5", "drug_generic^2", "company^1"},
 					"fuzziness": "AUTO",
 				},
 			},
@@ -40,7 +41,7 @@ func SearchProduct(c *gin.Context) {
 			mustQueries = append(mustQueries, map[string]interface{}{
 				"multi_match": map[string]interface{}{
 					"query":     word,
-					"fields":    []string{"product_name", "drug_generic", "company"},
+					"fields":    []string{"product_name^5", "drug_generic^2", "company^1"},
 					"fuzziness": "AUTO",
 				},
 			})
@@ -64,6 +65,8 @@ func SearchProduct(c *gin.Context) {
 		config.ES.Search.WithIndex("products"),
 		config.ES.Search.WithBody(&buf),
 		config.ES.Search.WithTrackTotalHits(true),
+		config.ES.Search.WithSort("_score:asc"),
+		config.ES.Search.WithPretty(),
 	)
 
 	if err != nil {
@@ -75,13 +78,20 @@ func SearchProduct(c *gin.Context) {
 	var result map[string]interface{}
 	json.NewDecoder(res.Body).Decode(&result)
 
-	var hits []map[string]interface{}
+	var hits []model.SearchResult
 	for _, hit := range result["hits"].(map[string]interface{})["hits"].([]interface{}) {
 		doc := hit.(map[string]interface{})
 		source := doc["_source"].(map[string]interface{})
-		source["score"] = doc["_score"]
-		hits = append(hits, source)
+		score := doc["_score"].(float64)
+
+		hits = append(hits, model.SearchResult{
+			ID:          source["id"].(string),
+			ProductName: source["product_name"].(string),
+			DrugGeneric: source["drug_generic"].(string),
+			Company:     source["company"].(string),
+			Score:       score,
+		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"results": hits})
+	c.JSON(http.StatusOK, model.SearchResponse{Results: hits})
 }
