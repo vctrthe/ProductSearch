@@ -7,84 +7,124 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/vctrthe/ProductSearch/config"
 	"github.com/vctrthe/ProductSearch/model"
 )
 
+// @Summary Search for products by keyword or full-text
+// @Description Search for products using Elasticsearch. Results are sorted by score in ascending order. (Lowest to highest score)
+// @Tags search
+// @Accept json
+// @Produce json
+// @Param q query string true "Search query"
+// @Success 200 {object} model.SearchResponse
+// @Failure 400 {object} object "Bad Request"
+// @Router /search [get]
 func SearchProduct(c *gin.Context) {
-	keyword := c.Query("q")
-	if keyword == "" {
+	// Get the search query from URL parameter
+	query := c.Query("q")
+	if query == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing query param ?q="})
 		return
 	}
 
-	var buf bytes.Buffer
-	words := strings.Fields(keyword)
+	// Create a timeout context to prevent long-running searches
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
 
-	var query map[string]interface{}
+	// Prepare the search query
+	var searchQuery map[string]interface{}
+	words := strings.Fields(query)
 
 	if len(words) == 1 {
-		query = map[string]interface{}{
+		// Single word search
+		searchQuery = map[string]interface{}{
 			"query": map[string]interface{}{
 				"multi_match": map[string]interface{}{
-					"query":     keyword,
-					"fields":    []string{"product_name^5", "drug_generic^2", "company^1"},
+					"query":     query,
+					"fields":    []string{"product_name^5", "drug_generic^3", "company^2"},
 					"fuzziness": "AUTO",
 				},
 			},
+			"size": 10, // Return only top 10 results
+			"sort": []map[string]interface{}{
+				{"_score": "asc"}, // Sort by score in ascending order
+			},
 		}
 	} else {
+		// Multiple words search
 		mustQueries := []map[string]interface{}{}
 		for _, word := range words {
 			mustQueries = append(mustQueries, map[string]interface{}{
 				"multi_match": map[string]interface{}{
 					"query":     word,
-					"fields":    []string{"product_name^5", "drug_generic^2", "company^1"},
+					"fields":    []string{"product_name^5", "drug_generic^3", "company^2"},
 					"fuzziness": "AUTO",
 				},
 			})
 		}
 
-		query = map[string]interface{}{
+		searchQuery = map[string]interface{}{
 			"query": map[string]interface{}{
 				"bool": map[string]interface{}{
 					"must": mustQueries,
 				},
 			},
+			"size": 10, // Return only top 10 results
+			"sort": []map[string]interface{}{
+				{"_score": "asc"}, // Sort by score in ascending order
+			},
 		}
 	}
 
-	if err := json.NewEncoder(&buf).Encode(query); err != nil {
-		log.Fatalf("error encoding query: %s", err)
+	// Convert query to JSON
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(searchQuery); err != nil {
+		log.Printf("error encoding query: %s", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
 	}
 
+	// Execute the search
 	res, err := config.ES.Search(
-		config.ES.Search.WithContext(context.Background()),
+		config.ES.Search.WithContext(ctx),
 		config.ES.Search.WithIndex("products"),
 		config.ES.Search.WithBody(&buf),
 		config.ES.Search.WithTrackTotalHits(true),
-		config.ES.Search.WithSort("_score:asc"),
-		config.ES.Search.WithPretty(),
 	)
 
 	if err != nil {
-		log.Fatalf("search error: %s", err)
+		log.Printf("search error: %s", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
 	}
 
 	defer res.Body.Close()
 
+	// Parse the response
 	var result map[string]interface{}
-	json.NewDecoder(res.Body).Decode(&result)
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		log.Printf("error decoding response: %s", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
 
-	var hits []model.SearchResult
-	for _, hit := range result["hits"].(map[string]interface{})["hits"].([]interface{}) {
+	// Extract hits and total count
+	hits := result["hits"].(map[string]interface{})
+	_ = hits["total"].(map[string]interface{})["value"].(float64)
+	hitsArray := hits["hits"].([]interface{})
+
+	// Convert hits to our response format
+	var searchResults []model.SearchResult
+	for _, hit := range hitsArray {
 		doc := hit.(map[string]interface{})
 		source := doc["_source"].(map[string]interface{})
 		score := doc["_score"].(float64)
 
-		hits = append(hits, model.SearchResult{
+		searchResults = append(searchResults, model.SearchResult{
 			ID:          source["id"].(string),
 			ProductName: source["product_name"].(string),
 			DrugGeneric: source["drug_generic"].(string),
@@ -93,5 +133,8 @@ func SearchProduct(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, model.SearchResponse{Results: hits})
+	// Return the response
+	c.JSON(http.StatusOK, model.SearchResponse{
+		Results: searchResults,
+	})
 }

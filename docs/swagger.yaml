@@ -1,0 +1,56 @@
+basePath: /
+definitions:
+  model.SearchResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/model.SearchResult'
+        type: array
+    type: object
+  model.SearchResult:
+    properties:
+      company:
+        type: string
+      drug_generic:
+        type: string
+      id:
+        type: string
+      product_name:
+        type: string
+      score:
+        type: number
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: This is a product search API using Elasticsearch
+  title: Product Search API
+  version: "1.0"
+paths:
+  /search:
+    get:
+      consumes:
+      - application/json
+      description: Search for products using Elasticsearch. Results are sorted by
+        score in ascending order. (Lowest to highest score)
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.SearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+      summary: Search for products by keyword or full-text
+      tags:
+      - search
+swagger: "2.0"
