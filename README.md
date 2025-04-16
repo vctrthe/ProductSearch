@@ -29,7 +29,7 @@
 └── routes/
     │
     └── router.go               -> Route Setup
-
+```
 ## Packages Used
 ```
 gin
