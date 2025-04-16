@@ -80,3 +80,8 @@ Comment examples:
 ```
 
 Then on the root project directory, I typed `swag init -g main.go` (`g` flag is to point `swag init` to read `swagger general API Info` in main.go, more info at [here](https://github.com/swaggo/swag))
+
+## Elasticsearch Docker Compose
+I've also provided a Docker compose file for deploying Elasticsearch instance on local host. Please change the environment as needed.
+
+For `config/elastic.go`, please change the `Addresses`, `Username`, and `Password` to match the needs.

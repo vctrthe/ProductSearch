@@ -1,0 +1,10 @@
+services:
+  elasticsearch:
+    image: elasticsearch:8.17.4
+    ports:
+      - 9200:9200
+    environment:
+      discovery.type: 'single-node'
+      xpack.security.enabled: 'true'
+      ELASTIC_PASSWORD: 'password'
+      ES_JAVA_OPTS: '-Xms2g -Xms2g'
